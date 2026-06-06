@@ -1,0 +1,46 @@
+name: Build and Push Docker Image
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build-and-push:
+    name: Build & Push Docker Image
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout source code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Docker Build
+        run: |
+          docker login -u bertonys -p "${{ secrets.DOCKER_HUB_PAT }}"
+          docker build -t bertonys/cohort-01:latest .
+          docker push bertonys/cohort-01:latest
+
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VPS_PEM }}" > ~/.ssh/id_rsa.pem
+          chmod 600 ~/.ssh/id_rsa.pem
+
+      - name: Add server to known_hosts
+        run: |
+          ssh-keyscan -H 43.218.128.95 >> ~/.ssh/known_hosts
+
+      - name: Copy manifest to VPS
+        run: |
+          scp -i ~/.ssh/id_rsa.pem \
+            k3s-manifest.yaml \
+            ubuntu@43.218.128.95:/tmp/nginx-simple-k8s.yaml
+
+      - name: Deploy to Server
+        run: |
+          ssh -i ~/.ssh/id_rsa.pem ubuntu@43.218.128.95 << 'ENDSSH'
+            echo "✅ Connected to server"
+            sudo kubectl patch deployment nginx -p "{\"spec\":{\"template\":{\"metadata\":{\"annotations\":{\"date\":\"$(date +'%s')\"}}}}}"
+            echo "✅ Deploy done"
+          ENDSSH
